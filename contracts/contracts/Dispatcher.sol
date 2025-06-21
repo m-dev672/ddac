@@ -84,6 +84,8 @@ contract Dispatcher {
     event FlightPlan(string indexed destination, string query, address operator);
 
     function fileFlightPlan(string memory destination, string memory query) public {
-        emit FlightPlan(destination, query, msg.sender);
+        if (!routes[destination].exists) {
+            emit FlightPlan(destination, query, msg.sender);
+        }
     }
 }
