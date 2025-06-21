@@ -5,12 +5,12 @@ pragma solidity ^0.8.28;
 // import "hardhat/console.sol";
 
 contract Dispatcher {
-    // Register Node
+    // About Node
     string[] public airportCodes;
-    string[] public availableAirportCodes;
 
     struct Airport {
         address owner;
+        bool available;
         bool exists;
     }
     mapping(string => Airport) public airports;
@@ -20,16 +20,51 @@ contract Dispatcher {
     ) public {
         if (!airports[airportCode].exists) {
             airportCodes.push(airportCode);
-            availableAirportCodes.push(airportCode);
 
             airports[airportCode] = Airport({
                 owner: msg.sender,
+                available: true,
                 exists: true
             });
         }
     }
 
-    // Register Database
+    function openAirport(
+        string memory airportCode
+    ) public {
+        if (airports[airportCode].owner == msg.sender && !airports[airportCode].available) {
+            airportCodes.push(airportCode);
+
+            airports[airportCode].available = true;
+        }
+    }
+
+    function closeAirport(
+        string memory airportCode
+    ) public {
+        if (airports[airportCode].owner == msg.sender) {
+            for (uint i = 0; i < airportCodes.length; i++) {
+                if (keccak256(bytes(airportCodes[i])) == keccak256(bytes(airportCode))) {
+                    airportCodes[i] = airportCodes[airportCodes.length - 1];
+                    airportCodes.pop();
+                    break;
+                }
+            }
+
+            airports[airportCode].available = false;
+        }
+    }
+
+    function destroyAirport(
+        string memory airportCode
+    ) public {
+        if (airports[airportCode].owner == msg.sender) {
+            closeAirport(airportCode);
+            airports[airportCode].exists = false;
+        }
+    }
+
+    // About Database
     uint seed;
     function pseudoRandom() internal returns (uint) {
         seed++;
@@ -45,7 +80,7 @@ contract Dispatcher {
     }
     mapping(string => Route) public routes;
 
-    event NewRoute(string indexed origin, string destination, Route route);
+    event NewRoute(string indexed origin, string destination, address[] canWriteAccount, string defaultPermission);
     
     function launchNewRoute(
         string memory destination,
@@ -54,10 +89,10 @@ contract Dispatcher {
         string memory defaultPermission
     ) public {
         if (!routes[destination].exists) {
-            require(availableAirportCodes.length >= 5, "Need at least 5 available airports");
+            require(airportCodes.length >= 5, "Need at least 5 available airports");
 
-            uint n = availableAirportCodes.length;
-            string[] memory pool = availableAirportCodes;
+            uint n = airportCodes.length;
+            string[] memory pool = airportCodes;
             string[5] memory origins;
 
             for (uint i = 0; i < 5; i++) {
@@ -75,8 +110,43 @@ contract Dispatcher {
             });
 
             for (uint i = 0; i < 5; i++) {
-                emit NewRoute(origins[i], destination, routes[destination]);
+                emit NewRoute(origins[i], destination, canWriteAccounts, defaultPermission);
             }
+        }
+    }
+
+    function canAuthorize(string memory destination) internal view returns (bool) {
+        address[] memory canAuthorizeAccounts = routes[destination].canAuthorizeAccounts;
+
+        for (uint i = 0; i < canAuthorizeAccounts.length; i++) {
+            if (canAuthorizeAccounts[i] == msg.sender) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    event permissionChanged(string indexed destination, address[] canWriteAccount, string defaultPermission);
+
+    function changePermission(
+        string memory destination,
+        address[] memory canWriteAccounts,
+        string memory defaultPermission
+    ) public {
+        if (canAuthorize(destination)) {
+            routes[destination].canWriteAccounts = canWriteAccounts;
+            routes[destination].defaultPermission = defaultPermission;
+        }
+    }
+
+    event routeTerminated(string indexed destination);
+
+    function terminateRoute(
+        string memory destination
+    ) public {
+        if (canAuthorize(destination)) {
+            routes[destination].exists = false;
         }
     }
 
@@ -84,7 +154,7 @@ contract Dispatcher {
     event FlightPlan(string indexed destination, string query, address operator);
 
     function fileFlightPlan(string memory destination, string memory query) public {
-        if (!routes[destination].exists) {
+        if (routes[destination].exists) {
             emit FlightPlan(destination, query, msg.sender);
         }
     }
