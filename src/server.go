@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -203,6 +205,67 @@ func destroyAirport() error {
 	return nil
 }
 
+func checkNewRouteEvent() error {
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	dispatcherAddr, dispatcherABI, err := dispatcher()
+	if err != nil {
+		return err
+	}
+
+	originTopic := []common.Hash{common.HexToHash("0x" + fmt.Sprintf("%x", []byte(config.AirportCode)))}
+
+	query := ethereum.FilterQuery{
+		Addresses: []common.Address{dispatcherAddr},
+		Topics: [][]common.Hash{
+			{dispatcherABI.Events["NewRoute"].ID},
+			originTopic,
+		},
+	}
+
+	client, err := ethclient.Dial(config.RPCEndpoint)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	logs := make(chan types.Log)
+	sub, err := client.SubscribeFilterLogs(context.Background(), query, logs)
+	if err != nil {
+		return err
+	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+
+	fmt.Println(("Checking events..."))
+	for {
+		select {
+		case <-sigs:
+			fmt.Println("Signal received, exiting loop...")
+			return nil
+		case <-sub.Err():
+			continue
+		case vLog := <-logs:
+			var event struct {
+				Origin            string
+				Destination       string
+				CanWriteAccount   []common.Address
+				DefaultPermission string
+			}
+
+			err := dispatcherABI.UnpackIntoInterface(&event, "NewRoute", vLog.Data)
+			if err == nil {
+				continue
+			}
+		}
+	}
+}
+
 func parseQuery(query []string) ([]string, error) {
 	newQuery := []string{}
 	for _, q := range query {
@@ -239,10 +302,15 @@ func main() {
 		}
 	}
 
-	fmt.Printf("%s", config.AirportCode)
+	err = checkNewRouteEvent()
+	if err != nil {
+		panic(err)
+	}
 
 	err = destroyAirport()
 	if err != nil {
 		panic(err)
 	}
+
+	fmt.Println("Destroyed")
 }
