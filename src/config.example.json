@@ -1,0 +1,7 @@
+{
+    "airportCode": "",
+    "rpcEndpoint": "https://sepolia-rollup.arbitrum.io/rpc",
+    "dispatcherAddr": "0xced08B7bBC4749529Fbec8eBe8a2298D4680A776",
+    "dispatcherABIFilePath": "./DispatcherABI.json",
+    "privateKey": ""
+}
