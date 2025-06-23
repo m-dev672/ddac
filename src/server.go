@@ -243,7 +243,7 @@ type Route struct {
 
 var routes = make(map[[16]byte]Route)
 
-func checkNewFlightPlanEvent(destination [16]byte) error {
+func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
 		fmt.Printf(">> Error: %s\n", err)
@@ -349,14 +349,12 @@ func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan st
 
 				close(routes[event.Destination].Instance)
 				routes[event.Destination].Client.Close()
-
-				go checkNewFlightPlanEvent(event.Destination)
 			}
 		}
 	}
 }
 
-func checkNewRouteEvent(client *ethclient.Client, airportInstance chan struct{}) error {
+func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan struct{}) error {
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
 		fmt.Printf(">> Error: %s\n", err)
@@ -415,7 +413,7 @@ func checkNewRouteEvent(client *ethclient.Client, airportInstance chan struct{})
 					event.DefaultPermission,
 				}
 
-				go checkNewFlightPlanEvent(event.Destination)
+				go checkFlightPlanSubmittedEvent(event.Destination)
 			}
 		}
 	}
@@ -445,7 +443,7 @@ func main() {
 		panic(err)
 	}
 
-	go checkNewRouteEvent(client, airportInstance)
+	go checkNewRouteLaunchedEvent(client, airportInstance)
 	go checkRouteTerminatedEvent(client, airportInstance)
 
 	sigChan := make(chan os.Signal, 1)
