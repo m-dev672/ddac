@@ -6,23 +6,39 @@ pragma solidity ^0.8.28;
 
 contract Dispatcher {
     // About Node
-    string[] public airportCodes;
+    bytes16[] public airportCodes;
+ 
+    function viewAirportCodes() public view returns (bytes16[] memory) {
+        return airportCodes;
+    }
 
     struct Airport {
         address owner;
+        uint index;
         bool available;
         bool exists;
     }
-    mapping(string => Airport) public airports;
+    mapping(bytes16 => Airport) public airports;
+
+    function viewAirport(bytes16 airportCode) public view returns (
+        address owner,
+        uint index,
+        bool available,
+        bool exists
+    ) {
+        Airport memory airport = airports[airportCode];
+        return (airport.owner, airport.index, airport.available, airport.exists);
+    }
 
     function constructAirport(
-        string memory airportCode
+        bytes16 airportCode
     ) public {
         if (!airports[airportCode].exists) {
             airportCodes.push(airportCode);
 
             airports[airportCode] = Airport({
                 owner: msg.sender,
+                index: airportCodes.length - 1,
                 available: true,
                 exists: true
             });
@@ -30,38 +46,40 @@ contract Dispatcher {
     }
 
     function openAirport(
-        string memory airportCode
+        bytes16 airportCode
     ) public {
-        if (airports[airportCode].owner == msg.sender && !airports[airportCode].available) {
-            airportCodes.push(airportCode);
+        require(airports[airportCode].owner == msg.sender, "You are not owner.");
+        require(!airports[airportCode].available, "Your airport is available.");
 
-            airports[airportCode].available = true;
-        }
+        airportCodes.push(airportCode);
+        airports[airportCode].index = airportCodes.length - 1;
+
+        airports[airportCode].available = true;
+        
     }
 
     function closeAirport(
-        string memory airportCode
+        bytes16 airportCode
     ) public {
-        if (airports[airportCode].owner == msg.sender) {
-            for (uint i = 0; i < airportCodes.length; i++) {
-                if (keccak256(bytes(airportCodes[i])) == keccak256(bytes(airportCode))) {
-                    airportCodes[i] = airportCodes[airportCodes.length - 1];
-                    airportCodes.pop();
-                    break;
-                }
-            }
+        require(airports[airportCode].owner == msg.sender, "You are not owner.");
 
-            airports[airportCode].available = false;
-        }
+        uint index = airports[airportCode].index;
+        uint lastIndex = airportCodes.length - 1;
+        (airportCodes[index], airportCodes[lastIndex]) = (airportCodes[lastIndex], airportCodes[index]);
+        
+        airports[airportCode].index = lastIndex;
+        airports[airportCodes[index]].index = index;
+        
+        airportCodes.pop();
+        airports[airportCode].available = false;
     }
 
     function destroyAirport(
-        string memory airportCode
+        bytes16 airportCode
     ) public {
-        if (airports[airportCode].owner == msg.sender) {
-            closeAirport(airportCode);
-            airports[airportCode].exists = false;
-        }
+        require(airports[airportCode].owner == msg.sender, "You are not owner.");
+
+        airports[airportCode].exists = false;
     }
 
     // About Database
@@ -72,50 +90,49 @@ contract Dispatcher {
     }
 
     struct Route {
-        string[5] origins;
+        bytes16[5] origins;
         address[] canAuthorizeAccounts;
         address[] canWriteAccounts;
         string defaultPermission;
         bool exists;
     }
-    mapping(string => Route) public routes;
+    mapping(bytes16 => Route) public routes;
 
-    event NewRoute(string indexed origin, string destination, address[] canWriteAccount, string defaultPermission);
+    event NewRouteLaunched(bytes16 indexed origin, bytes16 destination, address[] canWriteAccount, string defaultPermission);
     
     function launchNewRoute(
-        string memory destination,
+        bytes16 destination,
         address[] memory canAuthorizeAccounts,
         address[] memory canWriteAccounts,
         string memory defaultPermission
     ) public {
-        if (!routes[destination].exists) {
-            require(airportCodes.length >= 5, "Need at least 5 available airports");
+        require(!routes[destination].exists, "Route already exist.");
+        require(airportCodes.length >= 5, "Need at least 5 available airports.");
 
-            uint n = airportCodes.length;
-            string[] memory pool = airportCodes;
-            string[5] memory origins;
+        uint n = airportCodes.length;
+        bytes16[] memory pool = airportCodes;
+        bytes16[5] memory origins;
 
-            for (uint i = 0; i < 5; i++) {
-                uint j = i + (pseudoRandom() % (n - i));
-                (pool[i], pool[j]) = (pool[j], pool[i]);
-                origins[i] = pool[i];
-            }
+        for (uint i = 0; i < 5; i++) {
+            uint j = i + (pseudoRandom() % (n - i));
+            (pool[i], pool[j]) = (pool[j], pool[i]);
+            origins[i] = pool[i];
+        }
 
-            routes[destination] = Route({
-                origins: origins,
-                canAuthorizeAccounts: canAuthorizeAccounts,
-                canWriteAccounts: canWriteAccounts,
-                defaultPermission: defaultPermission,
-                exists: true
-            });
+        routes[destination] = Route({
+            origins: origins,
+            canAuthorizeAccounts: canAuthorizeAccounts,
+            canWriteAccounts: canWriteAccounts,
+            defaultPermission: defaultPermission,
+            exists: true
+        });
 
-            for (uint i = 0; i < 5; i++) {
-                emit NewRoute(origins[i], destination, canWriteAccounts, defaultPermission);
-            }
+        for (uint i = 0; i < 5; i++) {
+            emit NewRouteLaunched(origins[i], destination, canWriteAccounts, defaultPermission);
         }
     }
 
-    function canAuthorize(string memory destination) internal view returns (bool) {
+    function canAuthorize(bytes16 destination) internal view returns (bool) {
         address[] memory canAuthorizeAccounts = routes[destination].canAuthorizeAccounts;
 
         for (uint i = 0; i < canAuthorizeAccounts.length; i++) {
@@ -127,35 +144,37 @@ contract Dispatcher {
         return false;
     }
 
-    event permissionChanged(string indexed destination, address[] canWriteAccount, string defaultPermission);
+    event permissionChanged(bytes16 indexed destination, address[] canWriteAccount, string defaultPermission);
 
     function changePermission(
-        string memory destination,
+        bytes16 destination,
         address[] memory canWriteAccounts,
         string memory defaultPermission
     ) public {
-        if (canAuthorize(destination)) {
-            routes[destination].canWriteAccounts = canWriteAccounts;
-            routes[destination].defaultPermission = defaultPermission;
-        }
+        require(canAuthorize(destination), "You can not authorize.");
+
+        routes[destination].canWriteAccounts = canWriteAccounts;
+        routes[destination].defaultPermission = defaultPermission;
+
+        emit permissionChanged(destination, canWriteAccounts, defaultPermission);
     }
 
-    event routeTerminated(string indexed destination);
+    event routeTerminated(bytes16 indexed origin, bytes16 destination);
 
     function terminateRoute(
-        string memory destination
+        bytes16 destination
     ) public {
-        if (canAuthorize(destination)) {
-            routes[destination].exists = false;
+        require(canAuthorize(destination), "You can not authorize.");
+        for (uint i = 0; i < 5; i++) {
+            emit routeTerminated(routes[destination].origins[i], destination);
         }
     }
 
     // Exec Query
-    event FlightPlan(string indexed destination, string query, address operator);
+    event FlightPlanSubmitted(bytes16 indexed destination, string query, address operator);
 
-    function fileFlightPlan(string memory destination, string memory query) public {
-        if (routes[destination].exists) {
-            emit FlightPlan(destination, query, msg.sender);
-        }
+    function submitFlightPlan(bytes16 destination, string memory query) public {
+        require(routes[destination].exists, "Route does not exist.");
+        emit FlightPlanSubmitted(destination, query, msg.sender);
     }
 }
