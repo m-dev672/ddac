@@ -21,6 +21,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
+	github.com/mattn/go-sqlite3 v1.14.28 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/rqlite/sql v0.0.0-20250617025740-b9fa9ec5d0a0 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect

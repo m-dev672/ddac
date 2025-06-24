@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 
+	"database/sql"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -19,7 +22,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
-	"github.com/rqlite/sql"
+	_ "github.com/mattn/go-sqlite3"
+	rql "github.com/rqlite/sql"
 )
 
 var airportCode [16]byte
@@ -88,7 +92,7 @@ func sendTransaction(contractAddr common.Address, txData []byte, amount *big.Int
 	}
 	gasLimit := uint64(float64(estimateGas) * 1.3)
 
-	nonce, err := client.PendingNonceAt(context.Background(), senderAddr)
+	nonce, err := client.NonceAt(context.Background(), senderAddr, nil)
 	if err != nil {
 		return err
 	}
@@ -206,32 +210,37 @@ func destroyAirport() error {
 	return nil
 }
 
-func parseQuery(query string) (bool, string, error) {
+type Query struct {
+	Returning bool
+	Query     string
+}
+
+func parseQuery(query string) (bool, []Query, error) {
 	write := false
-	var newQuery []string
-	p := sql.NewParser(strings.NewReader(query))
+	var splittedQuery []Query
+	p := rql.NewParser(strings.NewReader(query))
 	for {
 		stmt, err := p.ParseStatement()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return write, strings.Join(newQuery, "; ") + ";", err
+			return write, splittedQuery, err
 		}
 
 		switch stmt.(type) {
-		case *sql.InsertStatement, *sql.UpdateStatement, *sql.DeleteStatement:
-			newQuery = append(newQuery, stmt.String()+" RETURNING *")
+		case *rql.InsertStatement, *rql.UpdateStatement, *rql.DeleteStatement:
+			splittedQuery = append(splittedQuery, Query{true, stmt.String() + " RETURNING *"})
 			write = true
-		case *sql.SelectStatement:
-			newQuery = append(newQuery, stmt.String())
+		case *rql.SelectStatement:
+			splittedQuery = append(splittedQuery, Query{true, stmt.String()})
 		default:
-			newQuery = append(newQuery, stmt.String())
+			splittedQuery = append(splittedQuery, Query{false, stmt.String()})
 			write = true
 		}
 	}
 
-	return write, strings.Join(newQuery, "; ") + ";", nil
+	return write, splittedQuery, nil
 }
 
 type Route struct {
@@ -246,7 +255,7 @@ var routes = make(map[[16]byte]Route)
 func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
-		fmt.Printf(">> Error: %s\n", err)
+		fmt.Printf("(%x)>> Error: %s\n", destination, err)
 	}
 
 	var destinationHash common.Hash
@@ -263,14 +272,19 @@ func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 	logs := make(chan types.Log)
 	sub, err := routes[destination].Client.SubscribeFilterLogs(context.Background(), query, logs)
 	if err != nil {
-		fmt.Printf(">> Error: %s\n", err)
+		fmt.Printf("(%x)>> Error: %s\n", destination, err)
 	}
 
-	fmt.Println(">> New route has been launched.")
+	fmt.Printf("(%x)>> New route has been launched.\n", destination)
+	db, err := sql.Open("sqlite3", fmt.Sprintf("database/%x.db", destination))
+	if err != nil {
+		fmt.Printf("(%x)>> Error: %s\n", destination, err)
+	}
+	defer db.Close()
 	for {
 		select {
 		case <-routes[destination].Instance:
-			fmt.Println(">> The route has been terminated.")
+			fmt.Printf("(%x)>> The route has been terminated.\n", destination)
 			return nil
 		case <-sub.Err():
 			continue
@@ -285,21 +299,62 @@ func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 			if err == nil {
 				write, query, err := parseQuery(event.Query)
 				if err != nil {
-					fmt.Printf(">> Error: %s\n", err)
+					fmt.Printf("(%x)>> Error: %s\n", destination, err)
 				}
 
-				fmt.Printf(">> %v\n", routes[destination].CanWriteAccount)
-				fmt.Printf(">> %s\n", event.Operator)
+				if (write && (slices.Contains(routes[destination].CanWriteAccount, event.Operator) || routes[destination].DefaultPermission == "write")) || !write {
+					for _, q := range query {
+						fmt.Printf("(%x)>> Query: %s\n", destination, q.Query)
+						if q.Returning {
+							rows, err := db.Query(q.Query)
+							if err != nil {
+								fmt.Printf("(%x)>> Error: %s\n", destination, err)
+								continue
+							}
+							defer rows.Close()
 
-				if write && slices.Contains(routes[destination].CanWriteAccount, event.Operator) {
-					fmt.Printf(">> Write Query: %s\n", query)
-					// SQLを実行
-					// RETURNINGのハッシュを計算
+							cols, err := rows.Columns()
+							if err != nil {
+								fmt.Printf("(%x)>> Error: %s\n", destination, err)
+								continue
+							}
+
+							result := make([]sql.RawBytes, len(cols))
+							resultAddr := make([]interface{}, len(cols))
+							for i := range result {
+								resultAddr[i] = &result[i]
+							}
+
+							for rows.Next() {
+								if err := rows.Scan(resultAddr...); err != nil {
+									fmt.Printf("(%x)>> Error: %s\n", destination, err)
+									continue
+								}
+							}
+
+							hasher := sha256.New()
+							for _, bytes := range result {
+								if bytes == nil {
+									hasher.Write([]byte{0xDE, 0xAD, 0xBE, 0xEF})
+								} else {
+									hasher.Write(bytes)
+								}
+								hasher.Write([]byte{0})
+							}
+
+							var hash [32]byte
+							copy(hash[:], hasher.Sum(nil)[:])
+							fmt.Printf("(%x)>> Hash: %x\n", destination, hash)
+						} else {
+							_, err := db.Exec(q.Query)
+							if err != nil {
+								fmt.Printf("(%x)>> Error: %s\n", destination, err)
+							}
+						}
+					}
 					// ハッシュの送信
-				} else if !write {
-					fmt.Printf(">> Read Query: %s\n", query)
 				} else {
-					fmt.Println(">> Permission error.")
+					fmt.Printf("(%x)>> Error: No proper permissions.\n", destination)
 				}
 			}
 		}
@@ -309,7 +364,7 @@ func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan struct{}) error {
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
-		fmt.Printf(">> Error: %s\n", err)
+		fmt.Printf("(N/A)>> Error: %s\n", err)
 	}
 
 	var originHash common.Hash
@@ -326,14 +381,14 @@ func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan st
 	logs := make(chan types.Log)
 	sub, err := client.SubscribeFilterLogs(context.Background(), query, logs)
 	if err != nil {
-		fmt.Printf(">> Error: %s\n", err)
+		fmt.Printf("(N/A)>> Error: %s\n", err)
 	}
 
-	fmt.Println(">> Your airport has been opened (1/2).")
+	fmt.Println("(N/A)>> Your airport has been opened (1/2).")
 	for {
 		select {
 		case <-airportInstance:
-			fmt.Println(">> Your airport has been closed (1/2).")
+			fmt.Println("(N/A)>> Your airport has been closed (1/2).")
 			return nil
 		case <-sub.Err():
 			continue
@@ -345,7 +400,7 @@ func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan st
 
 			err := dispatcherABI.UnpackIntoInterface(&event, "RouteTerminated", vLog.Data)
 			if err == nil {
-				fmt.Println(">> The route has been terminated.")
+				fmt.Printf("(%x)>> The route has been terminated.", event.Destination)
 
 				close(routes[event.Destination].Instance)
 				routes[event.Destination].Client.Close()
@@ -357,7 +412,7 @@ func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan st
 func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan struct{}) error {
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
-		fmt.Printf(">> Error: %s\n", err)
+		fmt.Printf("(N/A)>> Error: %s\n", err)
 	}
 
 	var originHash common.Hash
@@ -374,14 +429,14 @@ func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan s
 	logs := make(chan types.Log)
 	sub, err := client.SubscribeFilterLogs(context.Background(), query, logs)
 	if err != nil {
-		fmt.Printf(">> Error: %s\n", err)
+		fmt.Printf("(N/A)>> Error: %s\n", err)
 	}
 
-	fmt.Println(">> Your airport has been opened (2/2).")
+	fmt.Println("(N/A)>> Your airport has been opened (2/2).")
 	for {
 		select {
 		case <-airportInstance:
-			fmt.Println(">> Your airport has been closed (2/2).")
+			fmt.Println("(N/A)>> Your airport has been closed (2/2).")
 			return nil
 		case <-sub.Err():
 			continue
@@ -395,15 +450,14 @@ func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan s
 
 			err := dispatcherABI.UnpackIntoInterface(&event, "NewRouteLaunched", vLog.Data)
 			if err == nil {
-				fmt.Println(">> New route has been launched.")
 				config, err := loadConfig()
 				if err != nil {
-					fmt.Printf(">> Error: %s\n", err)
+					fmt.Printf("(N/A)>> Error: %s\n", err)
 				}
 
 				client, err := ethclient.Dial(config.RPCEndpoint)
 				if err != nil {
-					fmt.Printf(">> Error: %s\n", err)
+					fmt.Printf("(N/A)>> Error: %s\n", err)
 				}
 
 				routes[event.Destination] = Route{
@@ -427,9 +481,9 @@ func main() {
 		}
 	}
 
-	fmt.Println(">> Hello! President!")
-	fmt.Println(">> Here is airport console (Press Ctrl+C to exit).")
-	fmt.Printf(">> Your airport code is %x.\n", airportCode)
+	fmt.Println("(N/A)>> Hello! President!")
+	fmt.Println("(N/A)>> Here is airport console (Press Ctrl+C to exit).")
+	fmt.Printf("(N/A)>> Your airport code is %x.\n", airportCode)
 
 	airportInstance := make(chan struct{})
 
@@ -465,5 +519,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println(">> Bye!")
+	fmt.Println("(N/A)>> Bye!")
 }
