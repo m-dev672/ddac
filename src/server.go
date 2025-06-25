@@ -291,6 +291,7 @@ func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 		case vLog := <-logs:
 			var event struct {
 				Destination [16]byte
+				Nonce       uint64
 				Query       string
 				Operator    common.Address
 			}
@@ -364,7 +365,7 @@ func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan struct{}) error {
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
-		fmt.Printf("(N/A)>> Error: %s\n", err)
+		fmt.Printf("(General)>> Error: %s\n", err)
 	}
 
 	var originHash common.Hash
@@ -381,14 +382,14 @@ func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan st
 	logs := make(chan types.Log)
 	sub, err := client.SubscribeFilterLogs(context.Background(), query, logs)
 	if err != nil {
-		fmt.Printf("(N/A)>> Error: %s\n", err)
+		fmt.Printf("(General)>> Error: %s\n", err)
 	}
 
-	fmt.Println("(N/A)>> Your airport has been opened (1/2).")
+	fmt.Println("(General)>> Your airport has been opened (1/2).")
 	for {
 		select {
 		case <-airportInstance:
-			fmt.Println("(N/A)>> Your airport has been closed (1/2).")
+			fmt.Println("(General)>> Your airport has been closed (1/2).")
 			return nil
 		case <-sub.Err():
 			continue
@@ -412,7 +413,7 @@ func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan st
 func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan struct{}) error {
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
-		fmt.Printf("(N/A)>> Error: %s\n", err)
+		fmt.Printf("(General)>> Error: %s\n", err)
 	}
 
 	var originHash common.Hash
@@ -429,35 +430,37 @@ func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan s
 	logs := make(chan types.Log)
 	sub, err := client.SubscribeFilterLogs(context.Background(), query, logs)
 	if err != nil {
-		fmt.Printf("(N/A)>> Error: %s\n", err)
+		fmt.Printf("(General)>> Error: %s\n", err)
 	}
 
-	fmt.Println("(N/A)>> Your airport has been opened (2/2).")
+	fmt.Println("(General)>> Your airport has been opened (2/2).")
 	for {
 		select {
 		case <-airportInstance:
-			fmt.Println("(N/A)>> Your airport has been closed (2/2).")
+			fmt.Println("(General)>> Your airport has been closed (2/2).")
 			return nil
 		case <-sub.Err():
 			continue
 		case vLog := <-logs:
 			var event struct {
-				Origin            [16]byte
-				Destination       [16]byte
-				CanWriteAccount   []common.Address
-				DefaultPermission string
+				Origin                  [16]byte
+				Destination             [16]byte
+				CanWriteAccount         []common.Address
+				DefaultPermission       string
+				Reroute                 bool
+				EstablishedOriginIPAddr [4]byte
 			}
 
 			err := dispatcherABI.UnpackIntoInterface(&event, "NewRouteLaunched", vLog.Data)
 			if err == nil {
 				config, err := loadConfig()
 				if err != nil {
-					fmt.Printf("(N/A)>> Error: %s\n", err)
+					fmt.Printf("(General)>> Error: %s\n", err)
 				}
 
 				client, err := ethclient.Dial(config.RPCEndpoint)
 				if err != nil {
-					fmt.Printf("(N/A)>> Error: %s\n", err)
+					fmt.Printf("(General)>> Error: %s\n", err)
 				}
 
 				routes[event.Destination] = Route{
@@ -465,6 +468,14 @@ func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan s
 					make(chan struct{}),
 					event.CanWriteAccount,
 					event.DefaultPermission,
+				}
+
+				// Eventを監視しつつも、実行はしない。
+
+				if event.Reroute {
+					// ここでEstablishedOriginIPAddrから現状のデータベースファイルを取得。
+					// ついでにnonce（実装予定）も取得
+					// データベースファイルを取得できたら、nonce以降のイベントについて実行
 				}
 
 				go checkFlightPlanSubmittedEvent(event.Destination)
@@ -481,9 +492,9 @@ func main() {
 		}
 	}
 
-	fmt.Println("(N/A)>> Hello! President!")
-	fmt.Println("(N/A)>> Here is airport console (Press Ctrl+C to exit).")
-	fmt.Printf("(N/A)>> Your airport code is %x.\n", airportCode)
+	fmt.Println("(General)>> Hello! President!")
+	fmt.Println("(General)>> Here is airport console (Press Ctrl+C to exit).")
+	fmt.Printf("(General)>> Your airport code is %x.\n", airportCode)
 
 	airportInstance := make(chan struct{})
 
@@ -519,5 +530,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("(N/A)>> Bye!")
+	fmt.Println("(General)>> Bye!")
 }

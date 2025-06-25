@@ -12,9 +12,17 @@ contract Dispatcher {
         return airportCodes;
     }
 
+    bytes16[] public publicAirportCodes;
+ 
+    function viewPublicAirportCodes() public view returns (bytes16[] memory) {
+        return airportCodes;
+    }
+
     struct Airport {
         address owner;
-        uint index;
+        bytes4 ipAddr;
+        uint index1;
+        uint index2;
         bool available;
         bool exists;
     }
@@ -22,23 +30,31 @@ contract Dispatcher {
 
     function viewAirport(bytes16 airportCode) public view returns (
         address owner,
-        uint index,
+        bytes4 ipAddr,
+        uint index1,
+        uint index2,
         bool available,
         bool exists
     ) {
         Airport memory airport = airports[airportCode];
-        return (airport.owner, airport.index, airport.available, airport.exists);
+        return (airport.owner, airport.ipAddr, airport.index1, airport.index2, airport.available, airport.exists);
     }
 
     function constructAirport(
-        bytes16 airportCode
+        bytes16 airportCode,
+        bytes4 ipAddr
     ) public {
         if (!airports[airportCode].exists) {
             airportCodes.push(airportCode);
+            if (ipAddr != 0) {
+                publicAirportCodes.push(airportCode);
+            }
 
             airports[airportCode] = Airport({
                 owner: msg.sender,
-                index: airportCodes.length - 1,
+                ipAddr: ipAddr,
+                index1: airportCodes.length - 1,
+                index2: publicAirportCodes.length - 1,
                 available: true,
                 exists: true
             });
@@ -52,10 +68,13 @@ contract Dispatcher {
         require(!airports[airportCode].available, "Your airport is available.");
 
         airportCodes.push(airportCode);
-        airports[airportCode].index = airportCodes.length - 1;
+        airports[airportCode].index1 = airportCodes.length - 1;
+        if (airports[airportCode].ipAddr != 0) {
+            publicAirportCodes.push(airportCode);
+            airports[airportCode].index2 = publicAirportCodes.length - 1;
+        }
 
         airports[airportCode].available = true;
-        
     }
 
     function closeAirport(
@@ -63,12 +82,21 @@ contract Dispatcher {
     ) public {
         require(airports[airportCode].owner == msg.sender, "You are not owner.");
 
-        uint index = airports[airportCode].index;
+        uint index = airports[airportCode].index1;
         uint lastIndex = airportCodes.length - 1;
         (airportCodes[index], airportCodes[lastIndex]) = (airportCodes[lastIndex], airportCodes[index]);
         
-        airports[airportCode].index = lastIndex;
-        airports[airportCodes[index]].index = index;
+        airports[airportCode].index1 = lastIndex;
+        airports[airportCodes[index]].index1 = index;
+        
+        airportCodes.pop();
+
+        index = airports[airportCode].index2;
+        lastIndex = publicAirportCodes.length - 1;
+        (airportCodes[index], airportCodes[lastIndex]) = (airportCodes[lastIndex], airportCodes[index]);
+        
+        airports[airportCode].index2 = lastIndex;
+        airports[airportCodes[index]].index2 = index;
         
         airportCodes.pop();
         airports[airportCode].available = false;
@@ -91,6 +119,7 @@ contract Dispatcher {
 
     struct Route {
         bytes16[5] origins;
+        uint nonce;
         address[] canAuthorizeAccounts;
         address[] canWriteAccounts;
         string defaultPermission;
@@ -98,7 +127,7 @@ contract Dispatcher {
     }
     mapping(bytes16 => Route) public routes;
 
-    event NewRouteLaunched(bytes16 indexed origin, bytes16 destination, address[] canWriteAccount, string defaultPermission);
+    event NewRouteLaunched(bytes16 indexed origin, bytes16 destination, address[] canWriteAccount, string defaultPermission, bool reroute, bytes4 ipAddr);
     
     function launchNewRoute(
         bytes16 destination,
@@ -121,6 +150,7 @@ contract Dispatcher {
 
         routes[destination] = Route({
             origins: origins,
+            nonce: 0,
             canAuthorizeAccounts: canAuthorizeAccounts,
             canWriteAccounts: canWriteAccounts,
             defaultPermission: defaultPermission,
@@ -128,7 +158,7 @@ contract Dispatcher {
         });
 
         for (uint i = 0; i < 5; i++) {
-            emit NewRouteLaunched(origins[i], destination, canWriteAccounts, defaultPermission);
+            emit NewRouteLaunched(origins[i], destination, canWriteAccounts, defaultPermission, false, 0);
         }
     }
 
@@ -144,7 +174,7 @@ contract Dispatcher {
         return false;
     }
 
-    event permissionChanged(bytes16 indexed destination, address[] canWriteAccount, string defaultPermission);
+    event PermissionChanged(bytes16 indexed destination, address[] canWriteAccount, string defaultPermission);
 
     function changePermission(
         bytes16 destination,
@@ -156,25 +186,79 @@ contract Dispatcher {
         routes[destination].canWriteAccounts = canWriteAccounts;
         routes[destination].defaultPermission = defaultPermission;
 
-        emit permissionChanged(destination, canWriteAccounts, defaultPermission);
+        emit PermissionChanged(destination, canWriteAccounts, defaultPermission);
     }
 
-    event routeTerminated(bytes16 indexed origin, bytes16 destination);
+    event RouteTerminated(bytes16 indexed origin, bytes16 destination);
 
     function terminateRoute(
         bytes16 destination
     ) public {
         require(canAuthorize(destination), "You can not authorize.");
         for (uint i = 0; i < 5; i++) {
-            emit routeTerminated(routes[destination].origins[i], destination);
+            emit RouteTerminated(routes[destination].origins[i], destination);
+        }
+    }
+
+    event Rerouted(bytes16 indexed establishedOrigin, bytes4 newOriginIPAddr);
+
+    function reroute(bytes16 destination, bytes16 distablishedOrigin) internal {
+        require(airportCodes.length >= 6, "Need at least 6 available airports.");
+        // originsからdistablishedOriginを削除
+        bytes16 establishedOrigin;
+        uint distablishedOriginIndex;
+
+        for (uint i = 0; i < 5; i++) {
+            if (routes[destination].origins[i] == distablishedOrigin) {
+                distablishedOriginIndex = i;
+            } else if (airports[routes[destination].origins[i]].ipAddr != 0) {
+                establishedOrigin = routes[destination].origins[i];
+            }
+        }
+        
+        // routeTerminatedをdistablished Originに送信
+        emit RouteTerminated(distablishedOrigin, destination);
+
+        // OriginsのいずれかにIPが登録されていれば、airportsからnewOriginをランダムに選出しNewRouteLaunchedイベントを発行
+        // されていなければpublicAiportsから選出しRerouteイベントを発行
+        bytes16 newOrigin;
+        if (establishedOrigin == 0) {
+            // originsの全てのairportにipが全て設定されていない場合なので被らない。
+            newOrigin = publicAirportCodes[pseudoRandom() % publicAirportCodes.length];
+        } else {
+            bytes16[] memory pool = airportCodes;
+
+            for (uint i = 0; i < 5; i++) {
+                uint j = airports[routes[destination].origins[i]].index1;
+                uint k = airportCodes.length - 1 - i;
+                (pool[j], pool[k]) = (pool[k], pool[j]);
+            }
+            newOrigin = pool[pseudoRandom() % pool.length - 5];
+        }
+        
+        if (establishedOrigin == 0) {
+            emit Rerouted(
+                routes[destination].origins[0],
+                airports[newOrigin].ipAddr
+            );
+        } else {
+            emit NewRouteLaunched(
+                newOrigin,
+                destination,
+                routes[destination].canWriteAccounts,
+                routes[destination].defaultPermission,
+                true,
+                airports[establishedOrigin].ipAddr
+            );
         }
     }
 
     // Exec Query
-    event FlightPlanSubmitted(bytes16 indexed destination, string query, address operator);
+    event FlightPlanSubmitted(bytes16 indexed destination, uint nonce, string query, address operator);
 
     function submitFlightPlan(bytes16 destination, string memory query) public {
         require(routes[destination].exists, "Route does not exist.");
-        emit FlightPlanSubmitted(destination, query, msg.sender);
+        routes[destination].nonce = routes[destination].nonce + 1;
+        emit FlightPlanSubmitted(destination, routes[destination].nonce + 1, query, msg.sender);
     }
 }
