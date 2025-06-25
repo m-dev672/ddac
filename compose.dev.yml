@@ -1,0 +1,14 @@
+services:
+  go-dev:
+    image: golang:1.24.4-bullseye
+    container_name: dev-container
+    volumes:
+      - ./src:/src
+    working_dir: /src
+    environment:
+      - GO111MODULE=on
+      - GOPROXY=https://proxy.golang.org,direct
+    command: tail -f /dev/null
+
+volumes:
+  go-mod-cache:

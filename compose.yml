@@ -1,14 +1,21 @@
 services:
-  go-dev:
-    image: golang:1.24
-    container_name: dev-container
+  airport-1:
+    image: airport:latest
     volumes:
-      - ./src:/app
-    working_dir: /app
-    environment:
-      - GO111MODULE=on
-      - GOPROXY=https://proxy.golang.org,direct
-    command: tail -f /dev/null
-
-volumes:
-  go-mod-cache:
+      - ./src/config.1.json:/config.json
+  airport-2:
+    image: airport:latest
+    volumes:
+      - ./src/config.2.json:/config.json
+  airport-3:
+    image: airport:latest
+    volumes:
+      - ./src/config.3.json:/config.json
+  airport-4:
+    image: airport:latest
+    volumes:
+      - ./src/config.4.json:/config.json
+  airport-5:
+    image: airport:latest
+    volumes:
+      - ./src/config.5.json:/config.json

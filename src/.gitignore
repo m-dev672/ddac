@@ -2,4 +2,4 @@ test
 
 database/*
 
-config.json
+config.[1-5].json
