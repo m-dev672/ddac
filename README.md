@@ -35,9 +35,8 @@ The Go-based node implementation that:
 
 
 ## ⚙️ Requirements
+- [Hardhat](https://hardhat.org/)
 - [Go 1.24.4+](https://go.dev/)
-- SQLite3
-- ([Hardhat](https://hardhat.org/))
 - Dependencies:
   ```bash
   go get github.com/google/uuid
