@@ -10,6 +10,12 @@
         },
         {
           "indexed": false,
+          "internalType": "uint256",
+          "name": "nonce",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
           "internalType": "string",
           "name": "query",
           "type": "string"
@@ -50,6 +56,18 @@
           "internalType": "string",
           "name": "defaultPermission",
           "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "reroute",
+          "type": "bool"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes4",
+          "name": "establishedOriginIPAddr",
+          "type": "bytes4"
         }
       ],
       "name": "NewRouteLaunched",
@@ -77,7 +95,7 @@
           "type": "string"
         }
       ],
-      "name": "permissionChanged",
+      "name": "PermissionChanged",
       "type": "event"
     },
     {
@@ -86,11 +104,36 @@
         {
           "indexed": true,
           "internalType": "bytes16",
+          "name": "establishedOrigin",
+          "type": "bytes16"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes4",
+          "name": "newOriginIPAddr",
+          "type": "bytes4"
+        }
+      ],
+      "name": "Rerouted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes16",
+          "name": "origin",
+          "type": "bytes16"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes16",
           "name": "destination",
           "type": "bytes16"
         }
       ],
-      "name": "routeTerminated",
+      "name": "RouteTerminated",
       "type": "event"
     },
     {
@@ -128,8 +171,18 @@
           "type": "address"
         },
         {
+          "internalType": "bytes4",
+          "name": "ipAddr",
+          "type": "bytes4"
+        },
+        {
           "internalType": "uint256",
-          "name": "index",
+          "name": "index1",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "index2",
           "type": "uint256"
         },
         {
@@ -188,6 +241,11 @@
           "internalType": "bytes16",
           "name": "airportCode",
           "type": "bytes16"
+        },
+        {
+          "internalType": "bytes4",
+          "name": "ipAddr",
+          "type": "bytes4"
         }
       ],
       "name": "constructAirport",
@@ -252,6 +310,25 @@
     {
       "inputs": [
         {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "publicAirportCodes",
+      "outputs": [
+        {
+          "internalType": "bytes16",
+          "name": "",
+          "type": "bytes16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "bytes16",
           "name": "",
           "type": "bytes16"
@@ -259,6 +336,11 @@
       ],
       "name": "routes",
       "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "nonce",
+          "type": "uint256"
+        },
         {
           "internalType": "string",
           "name": "defaultPermission",
@@ -320,8 +402,18 @@
           "type": "address"
         },
         {
+          "internalType": "bytes4",
+          "name": "ipAddr",
+          "type": "bytes4"
+        },
+        {
           "internalType": "uint256",
-          "name": "index",
+          "name": "index1",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "index2",
           "type": "uint256"
         },
         {
@@ -341,6 +433,19 @@
     {
       "inputs": [],
       "name": "viewAirportCodes",
+      "outputs": [
+        {
+          "internalType": "bytes16[]",
+          "name": "",
+          "type": "bytes16[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "viewPublicAirportCodes",
       "outputs": [
         {
           "internalType": "bytes16[]",

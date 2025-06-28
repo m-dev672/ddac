@@ -14,6 +14,4 @@ WORKDIR /
 COPY --from=build /airport ./airport
 COPY src/DispatcherABI.json ./
 
-USER nonroot:nonroot
-
 CMD ["/airport"]

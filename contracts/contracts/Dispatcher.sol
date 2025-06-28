@@ -46,15 +46,18 @@ contract Dispatcher {
     ) public {
         if (!airports[airportCode].exists) {
             airportCodes.push(airportCode);
+
+            uint index2;
             if (ipAddr != 0) {
                 publicAirportCodes.push(airportCode);
+                index2 = publicAirportCodes.length - 1;
             }
 
             airports[airportCode] = Airport({
                 owner: msg.sender,
                 ipAddr: ipAddr,
                 index1: airportCodes.length - 1,
-                index2: publicAirportCodes.length - 1,
+                index2: index2,
                 available: true,
                 exists: true
             });
@@ -90,16 +93,18 @@ contract Dispatcher {
         airports[airportCodes[index]].index1 = index;
         
         airportCodes.pop();
-
-        index = airports[airportCode].index2;
-        lastIndex = publicAirportCodes.length - 1;
-        (airportCodes[index], airportCodes[lastIndex]) = (airportCodes[lastIndex], airportCodes[index]);
-        
-        airports[airportCode].index2 = lastIndex;
-        airports[airportCodes[index]].index2 = index;
-        
-        airportCodes.pop();
         airports[airportCode].available = false;
+
+        if (airports[airportCode].ipAddr != 0) {
+            index = airports[airportCode].index2;
+            lastIndex = publicAirportCodes.length - 1;
+            (publicAirportCodes[index], publicAirportCodes[lastIndex]) = (publicAirportCodes[lastIndex], publicAirportCodes[index]);
+        
+            airports[airportCode].index2 = lastIndex;
+            airports[publicAirportCodes[index]].index2 = index;
+        
+            publicAirportCodes.pop();
+        }
     }
 
     function destroyAirport(
@@ -127,7 +132,7 @@ contract Dispatcher {
     }
     mapping(bytes16 => Route) public routes;
 
-    event NewRouteLaunched(bytes16 indexed origin, bytes16 destination, address[] canWriteAccount, string defaultPermission, bool reroute, bytes4 ipAddr);
+    event NewRouteLaunched(bytes16 indexed origin, bytes16 destination, address[] canWriteAccount, string defaultPermission, bool reroute, bytes4 establishedOriginIPAddr);
     
     function launchNewRoute(
         bytes16 destination,

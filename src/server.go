@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"os"
 	"os/signal"
 	"slices"
@@ -29,6 +30,7 @@ import (
 var airportCode [16]byte
 
 type Config struct {
+	IPAddr                string `json:"IPAddr"`
 	RPCEndpoint           string `json:"rpcEndpoint"`
 	DispatcherAddr        string `json:"dispatcherAddr"`
 	DispatcherABIFilePath string `json:"dispatcherABIFilePath"`
@@ -163,12 +165,25 @@ func dispatcher() (common.Address, abi.ABI, error) {
 func constructAirport() error {
 	airportCode = uuid.New()
 
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	var ipFixedBytes [4]byte
+	ipBytes := net.ParseIP(config.IPAddr).To4()
+	if ipBytes == nil {
+		fmt.Printf("(General)>> Warning: \"%s\" is invalid IPv4 address.\n", config.IPAddr)
+	} else {
+		copy(ipFixedBytes[:], ipBytes)
+	}
+
 	dispatcherAddr, dispatcherABI, err := dispatcher()
 	if err != nil {
 		return err
 	}
 
-	txData, err := dispatcherABI.Pack("constructAirport", airportCode)
+	txData, err := dispatcherABI.Pack("constructAirport", airportCode, ipFixedBytes)
 
 	err = sendTransaction(dispatcherAddr, txData, nil)
 	if err != nil {
@@ -276,7 +291,7 @@ func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 	}
 
 	fmt.Printf("(%x)>> New route has been launched.\n", destination)
-	db, err := sql.Open("sqlite3", fmt.Sprintf("database/%x.db", destination))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%x.db", destination))
 	if err != nil {
 		fmt.Printf("(%x)>> Error: %s\n", destination, err)
 	}
@@ -291,13 +306,15 @@ func checkFlightPlanSubmittedEvent(destination [16]byte) error {
 		case vLog := <-logs:
 			var event struct {
 				Destination [16]byte
-				Nonce       uint64
+				Nonce       *big.Int
 				Query       string
 				Operator    common.Address
 			}
 
 			err := dispatcherABI.UnpackIntoInterface(&event, "FlightPlanSubmitted", vLog.Data)
-			if err == nil {
+			if err != nil {
+				fmt.Printf("(%x)>> Error: %s\n", destination, err)
+			} else {
 				write, query, err := parseQuery(event.Query)
 				if err != nil {
 					fmt.Printf("(%x)>> Error: %s\n", destination, err)
@@ -400,7 +417,9 @@ func checkRouteTerminatedEvent(client *ethclient.Client, airportInstance chan st
 			}
 
 			err := dispatcherABI.UnpackIntoInterface(&event, "RouteTerminated", vLog.Data)
-			if err == nil {
+			if err != nil {
+				fmt.Printf("(General)>> Error: %s\n", err)
+			} else {
 				fmt.Printf("(%x)>> The route has been terminated.", event.Destination)
 
 				close(routes[event.Destination].Instance)
@@ -452,7 +471,9 @@ func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan s
 			}
 
 			err := dispatcherABI.UnpackIntoInterface(&event, "NewRouteLaunched", vLog.Data)
-			if err == nil {
+			if err != nil {
+				fmt.Printf("(General)>> Error: %s\n", err)
+			} else {
 				config, err := loadConfig()
 				if err != nil {
 					fmt.Printf("(General)>> Error: %s\n", err)
@@ -474,7 +495,7 @@ func checkNewRouteLaunchedEvent(client *ethclient.Client, airportInstance chan s
 
 				if event.Reroute {
 					// ここでEstablishedOriginIPAddrから現状のデータベースファイルを取得。
-					// ついでにnonce（実装予定）も取得
+					// ついでにnonceも取得
 					// データベースファイルを取得できたら、nonce以降のイベントについて実行
 				}
 
