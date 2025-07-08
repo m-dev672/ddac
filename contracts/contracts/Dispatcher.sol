@@ -266,4 +266,14 @@ contract Dispatcher {
         routes[destination].nonce = routes[destination].nonce + 1;
         emit FlightPlanSubmitted(destination, routes[destination].nonce + 1, query, msg.sender);
     }
+
+    mapping (bytes16 => mapping (uint => bytes32)) returningHashes;
+
+    function flight(bytes16 origin, bytes16 destination, uint nonce, bytes32 returningHash) public {
+        if (returningHashes[destination][nonce] == 0) {
+            returningHashes[destination][nonce] = returningHash;
+        } else if (returningHashes[destination][nonce] != returningHash) {
+            reroute(destination, origin);
+        }
+    }
 }

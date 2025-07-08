@@ -2,6 +2,12 @@ module github.com/mdev672/ddac
 
 go 1.24.4
 
+replace github.com/mdev672/ddac/airport => ./airport
+replace github.com/mdev672/ddac/config => ./config
+replace github.com/mdev672/ddac/contract => ./contract
+replace github.com/mdev672/ddac/event => ./event
+replace github.com/mdev672/ddac/sqlWrapper => ./sqlWrapper
+
 require github.com/ethereum/go-ethereum v1.15.11
 
 require (
